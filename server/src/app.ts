@@ -10,6 +10,9 @@ import analysisRoutes from './routes/analysis';
 
 const app = express();
 
+// Required for Render deployment so express-rate-limit can correctly identify client IPs behind their proxy
+app.set("trust proxy", 1);
+
 const corsOptions = {
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true,

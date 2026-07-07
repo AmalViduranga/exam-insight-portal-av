@@ -84,7 +84,7 @@ router.post('/jobs/:id/school-stats', async (req: AuthRequest, res) => {
       return res.status(404).json({ message: 'Raw data expired or not found. Please upload again.' });
     }
 
-    const { calculateSchoolSubjectStats } = await import('../utils/calculations');
+    const { calculateSchoolSubjectStats } = await import('../utils/calculations.js');
     const stats = calculateSchoolSubjectStats(data, schoolId, subjectNo);
     
     res.json(stats);

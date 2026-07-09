@@ -1,6 +1,6 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LogOut, User, Shield } from 'lucide-react';
+import { LogOut, User, Shield, Menu } from 'lucide-react';
 import { Button } from './ui';
 
 interface TopNavbarProps {
@@ -10,59 +10,63 @@ interface TopNavbarProps {
 export function TopNavbar({ onMenuClick }: TopNavbarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = async () => {
     await logout();
     navigate('/login');
   };
 
-  const getDashboardLink = () => {
-    if (user?.role === 'ADMIN') return '/dashboard';
-    return '/dashboard';
+  const getPageTitle = () => {
+    const path = location.pathname;
+    if (path === '/dashboard') return 'Dashboard';
+    if (path.includes('/dashboard/upload')) return 'Upload Excel';
+    if (path.includes('/dashboard/rankings')) return 'Subject Rankings';
+    if (path.includes('/dashboard/reports')) return 'All Reports';
+    if (path.includes('/admin/users')) return 'User Management';
+    return 'Portal';
   };
 
   return (
-    <header className="bg-white border-b sticky top-0 z-40 h-16 shrink-0 flex items-center shadow-sm">
+    <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 h-20 shrink-0 flex items-center shadow-sm">
       <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 w-full gap-4">
         
-        {/* Left Side: Logo & Brand */}
-        <div className="flex items-center gap-3">
+        {/* Left Side: Mobile Menu Toggle & Page Title */}
+        <div className="flex items-center gap-4">
           {onMenuClick && (
             <button 
               onClick={onMenuClick} 
-              className="lg:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-md"
+              className="lg:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
               aria-label="Toggle menu"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+              <Menu className="w-6 h-6" />
             </button>
           )}
-          <Link to={getDashboardLink()} className="flex items-center gap-2 transition-opacity hover:opacity-90">
-            <div className="bg-primary/10 p-2 rounded-lg text-primary flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
-            </div>
-            <span className="font-bold text-lg md:text-xl text-slate-800 hidden sm:inline-block tracking-tight">Exam Insight Portal</span>
-          </Link>
+          <div className="flex flex-col">
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight hidden sm:block">{getPageTitle()}</h1>
+            <h1 className="text-lg font-bold text-slate-900 tracking-tight sm:hidden">Exam Insight Portal</h1>
+          </div>
         </div>
 
-        {/* Right Side: User Menu */}
-        <div className="flex items-center gap-2 sm:gap-4">
+        {/* Right Side: User Actions (Desktop/Mobile adapted) */}
+        <div className="flex items-center gap-3">
           {user && (
-            <div className="flex items-center gap-3 mr-2">
+            <div className="flex items-center gap-3">
               <div className="hidden md:flex flex-col items-end">
-                <span className="text-sm font-semibold text-slate-700 leading-tight">{user.fullName}</span>
-                <span className="text-xs text-slate-500 leading-tight flex items-center gap-1">
+                <span className="text-sm font-bold text-slate-800 leading-tight">{user.fullName}</span>
+                <span className="text-xs text-slate-500 font-medium leading-tight flex items-center gap-1 mt-0.5">
                   {user.role === 'ADMIN' ? (
-                    <span className="text-indigo-600 font-medium flex items-center gap-1">
+                    <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md flex items-center gap-1">
                       <Shield className="w-3 h-3" /> Admin
                     </span>
                   ) : (
-                    <span className="text-blue-600 font-medium flex items-center gap-1">
+                    <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md flex items-center gap-1">
                       <User className="w-3 h-3" /> User
                     </span>
                   )}
                 </span>
               </div>
-              <div className="w-9 h-9 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-100 to-blue-100 border border-indigo-200 flex items-center justify-center text-indigo-700 font-bold shadow-sm">
                 {user.fullName.charAt(0).toUpperCase()}
               </div>
             </div>
@@ -72,11 +76,11 @@ export function TopNavbar({ onMenuClick }: TopNavbarProps) {
             variant="ghost" 
             size="sm" 
             onClick={handleLogout} 
-            className="text-slate-600 hover:text-rose-600 hover:bg-rose-50 px-2 sm:px-3"
+            className="text-slate-600 hover:text-rose-600 hover:bg-rose-50 px-3 h-10 rounded-lg transition-colors ml-2"
             title="Logout"
           >
-            <LogOut className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Logout</span>
+            <LogOut className="w-5 h-5 md:mr-2" />
+            <span className="hidden md:inline font-medium">Logout</span>
           </Button>
         </div>
         

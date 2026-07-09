@@ -124,3 +124,6 @@ This application is designed specifically for handling confidential data.
 1. Navigate to the **Validation Panel** in the UI after uploading a sheet. Ensure there are no warnings. If warnings exist, the skipped rows or malformed values are documented there.
 2. Run the provided Vitest suite (`npm run test`), which asserts that the core formulas strictly follow the defined mathematical requirements.
 3. Compare the generated "All Schools Report" (exported to Excel/CSV) against a manually calculated control sample for a specific school.
+
+
+Hosted site - https://exam-insight-portal-av.vercel.app/

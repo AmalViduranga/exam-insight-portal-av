@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Allow: /analyze
+Allow: /exam-analyzer
+Allow: /features
+Allow: /features/excel-filter
+Allow: /pricing
+Allow: /security
+Disallow: /dashboard/
+Disallow: /admin/
+Disallow: /api/
+
+Sitemap: https://exam-insight-portal-av.vercel.app/sitemap.xml

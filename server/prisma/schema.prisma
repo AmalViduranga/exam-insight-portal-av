@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -20,84 +20,195 @@ enum AnalysisStatus {
 }
 
 model User {
-  id             String   @id @default(uuid())
-  username       String   @unique
-  passwordHash   String
-  fullName       String
-  role           Role     @default(USER)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  lastLoginAt    DateTime?
+  id           String    @id @default(uuid())
+  username     String?   @unique
+  email        String?   @unique
+  passwordHash String?
+  fullName     String?   @map("full_name")
+  role         Role      @default(USER)
+  isActive     Boolean   @default(true) @map("is_active")
+  avatarUrl    String?   @map("avatar_url")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  lastLoginAt  DateTime? @map("last_login_at")
 
-  analysisJobs   AnalysisJob[]
-  results        AnalysisResult[]
+  datasets         Dataset[]
+  savedFilters     SavedFilter[]
+  generatedReports GeneratedReport[]
+  uploadHistory    UploadHistory[]
+  analysisJobs     AnalysisJob[]
+  analysisResults  AnalysisResult[]
+  auditLogs        AuditLog[]
+
+  @@map("profiles")
+}
+
+model Dataset {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  name             String
+  originalFileName String   @map("original_file_name")
+  fileSizeBytes    BigInt   @default(0) @map("file_size_bytes")
+  mimeType         String   @map("mime_type")
+  storagePath      String?  @map("storage_path")
+  rowCount         Int      @default(0) @map("row_count")
+  columnCount      Int      @default(0) @map("column_count")
+  sheetNames       Json     @default("[]") @map("sheet_names")
+  activeSheet      String?  @map("active_sheet")
+  summaryMetrics   Json     @default("{}") @map("summary_metrics")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  columns          DatasetColumn[]
+  savedFilters     SavedFilter[]
+  generatedReports GeneratedReport[]
+
+  @@map("datasets")
+}
+
+model DatasetColumn {
+  id             String   @id @default(uuid())
+  datasetId      String   @map("dataset_id")
+  name           String
+  dataType       String   @map("data_type") // 'text', 'number', 'date', 'percentage', 'category', 'boolean'
+  cardinality    Int      @default(0)
+  minValue       String?  @map("min_value")
+  maxValue       String?  @map("max_value")
+  distinctValues Json     @default("[]") @map("distinct_values")
+  nullCount      Int      @default(0) @map("null_count")
+  sampleValues   Json     @default("[]") @map("sample_values")
+  orderIndex     Int      @default(0) @map("order_index")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  dataset        Dataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@map("dataset_columns")
+}
+
+model SavedFilter {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  datasetId String   @map("dataset_id")
+  name      String
+  filters   Json     @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dataset   Dataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@map("saved_filters")
+}
+
+model GeneratedReport {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  datasetId   String?  @map("dataset_id")
+  title       String
+  description String?
+  reportType  String   @default("UNIVERSAL") @map("report_type")
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dataset     Dataset? @relation(fields: [datasetId], references: [id], onDelete: SetNull)
+
+  @@map("generated_reports")
+}
+
+model UploadHistory {
+  id            String   @id @default(uuid())
+  userId        String?  @map("user_id")
+  fileName      String   @map("file_name")
+  fileSizeBytes BigInt   @default(0) @map("file_size_bytes")
+  fileType      String   @map("file_type")
+  rowCount      Int      @default(0) @map("row_count")
+  status        String   @default("SUCCESS")
+  errorMessage  String?  @map("error_message")
+  ipAddress     String?  @map("ip_address")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("upload_history")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  action    String
+  details   Json?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
 }
 
 model AnalysisJob {
   id                    String         @id @default(uuid())
-  uploadedById          String
-  originalFileName      String
+  uploadedById          String?        @map("uploaded_by_id")
+  originalFileName      String         @map("original_file_name")
   status                AnalysisStatus @default(PROCESSING)
-  totalRowsRead         Int            @default(0)
-  schoolsDetected       Int            @default(0)
-  subjectAttemptsParsed Int            @default(0)
-  warningCount          Int            @default(0)
-  createdAt             DateTime       @default(now())
-  completedAt           DateTime?
+  totalRowsRead         Int            @default(0) @map("total_rows_read")
+  schoolsDetected       Int            @default(0) @map("schools_detected")
+  subjectAttemptsParsed Int            @default(0) @map("subject_attempts_parsed")
+  warningCount          Int            @default(0) @map("warning_count")
+  createdAt             DateTime       @default(now()) @map("created_at")
+  completedAt           DateTime?      @map("completed_at")
 
-  uploadedBy            User           @relation(fields: [uploadedById], references: [id])
+  uploadedBy            User?          @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
   results               AnalysisResult[]
+
+  @@map("analysis_jobs")
 }
 
 model AnalysisResult {
   id               String   @id @default(uuid())
-  analysisJobId    String
-  createdById      String
+  analysisJobId    String   @map("analysis_job_id")
+  createdById      String?  @map("created_by_id")
   title            String
-  selectedSubjects Json     // array of selected subject numbers
-  createdAt        DateTime @default(now())
+  selectedSubjects Json     @default("[]") @map("selected_subjects")
+  createdAt        DateTime @default(now()) @map("created_at")
 
-  job              AnalysisJob @relation(fields: [analysisJobId], references: [id])
-  createdBy        User        @relation(fields: [createdById], references: [id])
+  job              AnalysisJob          @relation(fields: [analysisJobId], references: [id], onDelete: Cascade)
+  createdBy        User?                @relation(fields: [createdById], references: [id], onDelete: SetNull)
   rows             AnalysisResultRow[]
+
+  @@map("analysis_results")
 }
 
 model AnalysisResultRow {
-  id                 String   @id @default(uuid())
-  analysisResultId   String
-  schoolId           String
-  schoolName         String
-  zone               String?
-  province           String?
-  subjectNo          String
-  totalDid           Int
-  satCount           Int
-  absentCount        Int
-  aCount             Int
-  bCount             Int
-  cCount             Int
-  sCount             Int
-  wCount             Int
-  passCount          Int
-  failCount          Int
-  passPercentage     String
-  aPercentage        String
-  bPercentage        String
-  cPercentage        String
-  sPercentage        String
-  wPercentage        String
-  absentPercentage   String
-  rank               Int
+  id               String   @id @default(uuid())
+  analysisResultId String   @map("analysis_result_id")
+  schoolId         String   @map("school_id")
+  schoolName       String   @map("school_name")
+  zone             String?
+  province         String?
+  subjectNo        String   @map("subject_no")
+  totalDid         Int      @default(0) @map("total_did")
+  satCount         Int      @default(0) @map("sat_count")
+  absentCount      Int      @default(0) @map("absent_count")
+  aCount           Int      @default(0) @map("a_count")
+  bCount           Int      @default(0) @map("b_count")
+  cCount           Int      @default(0) @map("c_count")
+  sCount           Int      @default(0) @map("s_count")
+  wCount           Int      @default(0) @map("w_count")
+  passCount        Int      @default(0) @map("pass_count")
+  failCount        Int      @default(0) @map("fail_count")
+  passPercentage   String   @map("pass_percentage")
+  aPercentage      String   @map("a_percentage")
+  bPercentage      String   @map("b_percentage")
+  cPercentage      String   @map("c_percentage")
+  sPercentage      String   @map("s_percentage")
+  wPercentage      String   @map("w_percentage")
+  absentPercentage String   @map("absent_percentage")
+  rank             Int      @default(0)
 
-  analysisResult     AnalysisResult @relation(fields: [analysisResultId], references: [id], onDelete: Cascade)
-}
+  analysisResult   AnalysisResult @relation(fields: [analysisResultId], references: [id], onDelete: Cascade)
 
-model AuditLog {
-  id          String   @id @default(uuid())
-  userId      String?
-  action      String
-  details     Json?
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+  @@map("analysis_result_rows")
 }

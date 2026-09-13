@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { parseExcelBuffer } from '../utils/excelParser';
 import { calculateAllSchoolsSubjectStats } from '../utils/calculations';
+import { sanitizeDataRows } from '../utils/security';
 import XLSX from 'xlsx';
 
 const router = Router();
@@ -11,7 +12,7 @@ const prisma = new PrismaClient();
 
 const upload = multer({ 
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  limits: { fileSize: 25 * 1024 * 1024 } // 25MB limit
 });
 
 router.use(authenticate);
@@ -47,8 +48,8 @@ router.post('/upload', upload.single('file'), async (req: AuthRequest, res) => {
 
     // Store temporarily in memory
     temporaryJobStore.set(job.id, data);
-    // Cleanup after 1 hour
-    setTimeout(() => temporaryJobStore.delete(job.id), 60 * 60 * 1000);
+    // Cleanup after 2 hours
+    setTimeout(() => temporaryJobStore.delete(job.id), 2 * 60 * 60 * 1000);
 
     await prisma.auditLog.create({
       data: { userId: req.user!.id, action: 'UPLOAD_EXCEL', details: { jobId: job.id, fileName: req.file.originalname }, ipAddress: (req.ip as any) || '' }
@@ -69,8 +70,8 @@ router.post('/upload', upload.single('file'), async (req: AuthRequest, res) => {
       },
       warnings: data.warnings,
     });
-  } catch (error) {
-    res.status(500).json({ message: 'Internal server error' });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Internal server error' });
   }
 });
 
@@ -81,41 +82,54 @@ router.post('/jobs/:id/school-stats', async (req: AuthRequest, res) => {
 
     const data = temporaryJobStore.get(id);
     if (!data) {
-      return res.status(404).json({ message: 'Raw data expired or not found. Please upload again.' });
+      return res.status(404).json({ message: 'Analysis job session expired. Please re-upload the Excel file.' });
     }
 
-    const { calculateSchoolSubjectStats } = await import('../utils/calculations.js');
-    const stats = calculateSchoolSubjectStats(data, schoolId, subjectNo);
-    
-    res.json(stats);
+    const school = data.schools[schoolId];
+    if (!school) {
+      return res.status(404).json({ message: 'School not found in this dataset.' });
+    }
+
+    const attempts = data.attemptsBySchool[schoolId] || [];
+    const stats = calculateAllSchoolsSubjectStats(data, subjectNo);
+    const schoolStats = stats.find(s => s.schoolId === schoolId);
+
+    res.json({
+      school,
+      stats: schoolStats || null,
+      studentCount: attempts.length
+    });
   } catch (error) {
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-router.post('/jobs/:id/report', async (req: AuthRequest, res) => {
+router.post('/jobs/:id/generate-report', async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string;
     const { subjects, title } = req.body;
 
-    const data = temporaryJobStore.get(id);
-    if (!data) {
-      return res.status(404).json({ message: 'Raw data expired or not found. Please upload again.' });
+    if (!subjects || !Array.isArray(subjects) || subjects.length === 0) {
+      return res.status(400).json({ message: 'At least one subject must be selected.' });
     }
 
-    const subjectList = subjects as string[];
+    const data = temporaryJobStore.get(id);
+    if (!data) {
+      return res.status(404).json({ message: 'Analysis job session expired. Please re-upload the Excel file.' });
+    }
 
     const result = await prisma.analysisResult.create({
       data: {
         analysisJobId: id,
         createdById: req.user!.id,
-        title: title || 'Analysis Report',
-        selectedSubjects: subjectList
+        title: title || `Exam Performance Analysis - ${new Date().toLocaleDateString()}`,
+        selectedSubjects: subjects
       }
     });
 
     const resultRows: any[] = [];
-    for (const subjectNo of subjectList) {
+
+    for (const subjectNo of subjects) {
       const stats = calculateAllSchoolsSubjectStats(data, subjectNo);
       
       // Calculate ranks based on Pass Percentage descending
@@ -135,14 +149,15 @@ router.post('/jobs/:id/report', async (req: AuthRequest, res) => {
         return a.schoolName.localeCompare(b.schoolName);
       });
 
-      // Assign ranks
+      // Assign ranks - FIX: Extract zone and province from school data if available
       sortedStats.forEach((sr, index) => {
+        const schoolMeta = data.schools[sr.schoolId] || {};
         resultRows.push({
           analysisResultId: result.id,
           schoolId: sr.schoolId,
           schoolName: sr.schoolName,
-          zone: null, // If zone exists, use sr.zone
-          province: null,
+          zone: (sr as any).zone || (schoolMeta as any).zone || null,
+          province: (sr as any).province || (schoolMeta as any).province || null,
           subjectNo,
           totalDid: sr.totalDid,
           satCount: sr.satCount,
@@ -182,12 +197,34 @@ router.post('/jobs/:id/report', async (req: AuthRequest, res) => {
 
 router.get('/results', async (req: AuthRequest, res) => {
   try {
-    const results = await prisma.analysisResult.findMany({
-      where: req.user!.role === 'USER' ? { createdById: req.user!.id } : undefined,
-      orderBy: { createdAt: 'desc' },
-      include: { createdBy: { select: { fullName: true } }, job: { select: { originalFileName: true } } }
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const search = (req.query.search as string || '').trim();
+    const skip = (page - 1) * limit;
+
+    const whereClause: any = req.user!.role === 'USER' ? { createdById: req.user!.id } : {};
+    if (search) {
+      whereClause.title = { contains: search, mode: 'insensitive' };
+    }
+
+    const [total, results] = await Promise.all([
+      prisma.analysisResult.count({ where: whereClause }),
+      prisma.analysisResult.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: { createdBy: { select: { fullName: true } }, job: { select: { originalFileName: true } } }
+      })
+    ]);
+
+    res.json({
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      data: results
     });
-    res.json(results);
   } catch (error) {
     res.status(500).json({ message: 'Internal server error' });
   }
@@ -206,6 +243,38 @@ router.get('/results/:id', async (req: AuthRequest, res) => {
     }
 
     res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+router.delete('/results/:id', async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const result = await prisma.analysisResult.findUnique({
+      where: { id }
+    });
+
+    if (!result) {
+      return res.status(404).json({ message: 'Report not found' });
+    }
+
+    if (req.user!.role === 'USER' && result.createdById !== req.user!.id) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    await prisma.analysisResult.delete({ where: { id } });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user!.id,
+        action: 'DELETE_REPORT',
+        details: { reportId: id, title: result.title },
+        ipAddress: (req.ip as any) || ''
+      }
+    });
+
+    res.json({ success: true, message: 'Report deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Internal server error' });
   }
@@ -235,7 +304,6 @@ router.get('/jobs/:id', async (req: AuthRequest, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
     
-    // Check if we still have the full parsed data in memory
     const data = temporaryJobStore.get(job.id);
     if (data) {
       return res.json({
@@ -252,7 +320,7 @@ router.get('/jobs/:id', async (req: AuthRequest, res) => {
           ignoredColumnsCount: data.ignoredColumnsCount
         },
         warnings: data.warnings,
-        sheets: [] // We don't store raw sheets in temporaryJobStore, but we can pass an empty array to satisfy the frontend type
+        sheets: []
       });
     }
 
@@ -275,8 +343,6 @@ router.get('/results/:id/export/xlsx', async (req: AuthRequest, res) => {
     }
 
     const wb = XLSX.utils.book_new();
-
-    // Summary Sheet logic
     const selectedSubjects = result.selectedSubjects as string[];
     const summaryData = [];
 
@@ -292,8 +358,6 @@ router.get('/results/:id/export/xlsx', async (req: AuthRequest, res) => {
       
       const overallPassPercentage = totalSat > 0 ? ((totalPass / totalSat) * 100).toFixed(2) : 'N/A';
 
-      // Find highest pass %
-      // Sort by rank to find highest (rank 1) and lowest (rank N)
       const sorted = [...subjectRows].sort((a: any, b: any) => a.rank - b.rank);
       const highest = sorted[0];
       const lowest = sorted[sorted.length - 1];
@@ -314,11 +378,11 @@ router.get('/results/:id/export/xlsx', async (req: AuthRequest, res) => {
     }
 
     if (summaryData.length > 0) {
-      const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+      const cleanSummary = sanitizeDataRows(summaryData);
+      const wsSummary = XLSX.utils.json_to_sheet(cleanSummary);
       XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
     }
 
-    // Individual Subject Sheets
     for (const subject of selectedSubjects) {
       const subjectRows = result.rows.filter((r: any) => r.subjectNo === subject);
       if (subjectRows.length === 0) continue;
@@ -350,7 +414,8 @@ router.get('/results/:id/export/xlsx', async (req: AuthRequest, res) => {
         'Absent %': r.absentPercentage + '%'
       }));
 
-      const ws = XLSX.utils.json_to_sheet(sheetData);
+      const cleanSheetData = sanitizeDataRows(sheetData);
+      const ws = XLSX.utils.json_to_sheet(cleanSheetData);
       XLSX.utils.book_append_sheet(wb, ws, `Subject_${subject}`);
     }
 
@@ -381,10 +446,8 @@ router.get('/results/:id/export/csv', async (req: AuthRequest, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    // CSV usually means flat file. We'll just export all rows flattened.
     const sortedRows = result.rows.sort((a: any, b: any) => a.subjectNo.localeCompare(b.subjectNo) || a.rank - b.rank);
     
-    const wb = XLSX.utils.book_new();
     const sheetData = sortedRows.map((r: any) => ({
       Rank: r.rank,
       'School ID': r.schoolId,
@@ -411,7 +474,9 @@ router.get('/results/:id/export/csv', async (req: AuthRequest, res) => {
       'Absent %': r.absentPercentage + '%'
     }));
 
-    const ws = XLSX.utils.json_to_sheet(sheetData);
+    const cleanSheetData = sanitizeDataRows(sheetData);
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(cleanSheetData);
     XLSX.utils.book_append_sheet(wb, ws, 'Data');
     
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'csv' });

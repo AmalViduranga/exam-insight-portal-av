@@ -2,14 +2,12 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { TopNavbar } from '../components/TopNavbar';
 import { Sidebar } from '../components/Sidebar';
-import { AnalysisProvider } from '../contexts/AnalysisContext';
 
 export function AuthLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
-    <AnalysisProvider>
-      <div className="min-h-screen bg-slate-50 font-sans flex flex-col">
+    <div className="min-h-screen bg-slate-50 font-sans flex flex-col">
         {/* Mobile Sidebar Overlay */}
         <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
 
@@ -45,6 +43,5 @@ export function AuthLayout() {
           </div>
         </div>
       </div>
-    </AnalysisProvider>
   );
 }

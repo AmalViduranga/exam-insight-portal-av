@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import { authenticate, optionalAuthenticate, AuthRequest } from '../middleware/auth';
 import { authLimiter } from '../middleware/rateLimiter';
 import { z } from 'zod';
 
@@ -14,6 +14,7 @@ const getCookieOptions = () => ({
   secure: process.env.NODE_ENV === 'production',
   sameSite: process.env.NODE_ENV === 'production' ? ('none' as const) : ('lax' as const),
   maxAge: 8 * 60 * 60 * 1000, // 8 hours
+  path: '/',
 });
 
 const signupSchema = z.object({
@@ -212,13 +213,17 @@ router.post('/reset-password', authLimiter, async (req, res, next) => {
   }
 });
 
-router.post('/logout', authenticate, async (req: AuthRequest, res) => {
+router.post('/logout', optionalAuthenticate, async (req: AuthRequest, res) => {
   res.clearCookie('token', getCookieOptions());
 
   if (req.user) {
-    await prisma.auditLog.create({
-      data: { userId: req.user.id, action: 'LOGOUT', ipAddress: req.ip || '' },
-    });
+    try {
+      await prisma.auditLog.create({
+        data: { userId: req.user.id, action: 'LOGOUT', ipAddress: req.ip || '' },
+      });
+    } catch {
+      // Non-blocking audit log
+    }
   }
 
   res.json({ success: true, message: 'Logged out successfully' });

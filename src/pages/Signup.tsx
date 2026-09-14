@@ -29,8 +29,13 @@ export function Signup() {
       setLoading(true);
       const res = await signUp(email, password, fullName);
       if (res.success) {
-        addToast(res.message || 'Account created successfully!', 'success');
-        navigate('/dashboard');
+        if (res.session) {
+          addToast(res.message || 'Account created successfully!', 'success');
+          navigate('/dashboard');
+        } else {
+          addToast(res.message || 'Account created! Please verify your email.', 'success');
+          navigate('/verify-email', { state: { email } });
+        }
       } else {
         addToast(res.message || 'Signup failed', 'error');
       }

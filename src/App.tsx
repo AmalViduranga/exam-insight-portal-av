@@ -10,6 +10,7 @@ import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
+import { VerifyEmail } from './pages/VerifyEmail';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Dashboard } from './pages/Dashboard';
 import { UserManagement } from './pages/UserManagement';
@@ -30,6 +31,7 @@ function App() {
         <Route path="/security" element={<SecurityPage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
       </Route>
